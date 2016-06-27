@@ -28,6 +28,9 @@ class OptionParser():
         msg = "Input data file on HDFS, e.g. hdfs:///path/data/file"
         self.parser.add_argument("--fname", action="store",
             dest="fname", default="", help=msg)
+        msg = 'Output file on HDFS, e.g. hdfs:///path/data/output.file'
+        self.parser.add_argument("--fout", action="store",
+            dest="fout", default="", help=msg)
         self.parser.add_argument("--verbose", action="store_true",
             dest="verbose", default=False, help="Be verbose")
         self.parser.add_argument("--yarn", action="store_true",
@@ -54,6 +57,12 @@ def stats(iterable):
     custodial = ','.join([str(i) for i in set(cust)])
     phedex_group = ','.join([str(i) for i in set(group)])
     return nfiles, bsize, dataset_status, custodial, phedex_group
+
+def toCSV(data):
+    key, val = data # our data is (dataset, site) (block attrbutes)
+    out = ' '.join(str(k) for k in key)
+    return out + ' ' + ' '.join(str(v) for v in val)
+#    return ','.join(str(d) for d in data)
 
 def main():
     "Main function"
@@ -101,22 +110,27 @@ def main():
 #    print("open dataset size", res.collect())
 
     res = ndf.map(lambda r: ((r.dataset_name, r.node_name), r)).groupByKey().map(lambda g: (g[0], stats(g[1])))
-    count = 0
-    print("dataset site nfiles bsize status cust group")
-    for item in res.collect():
-        pair = item[0]
-        dataset = pair[0]
-        site = pair[1]
-        items = item[1]
-        nfiles = items[0]
-        bsize = items[1]
-        dstatus = items[2]
-        cust = items[3]
-        group = items[4]
-        print('%s %s %s %s %s %s %s' % (dataset, site, nfiles, bsize, dstatus, cust, group))
-        count += 1
-        if count>10:
-            break
+
+    if  opts.fout:
+        lines = res.map(toCSV)
+        lines.saveAsTextFile(opts.fout)
+    else:
+        count = 0
+        print("dataset site nfiles bsize status cust group")
+        for item in res.collect():
+            pair = item[0]
+            dataset = pair[0]
+            site = pair[1]
+            items = item[1]
+            nfiles = items[0]
+            bsize = items[1]
+            dstatus = items[2]
+            cust = items[3]
+            group = items[4]
+            print('%s %s %s %s %s %s %s' % (dataset, site, nfiles, bsize, dstatus, cust, group))
+            count += 1
+            if count>10:
+                break
 
 if __name__ == '__main__':
     main()
