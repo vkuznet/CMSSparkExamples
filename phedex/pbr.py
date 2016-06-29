@@ -31,6 +31,9 @@ class OptionParser():
         msg = 'Output file on HDFS, e.g. hdfs:///path/data/output.file'
         self.parser.add_argument("--fout", action="store",
             dest="fout", default="", help=msg)
+        msg = 'specify order key, either by dataset or by site'
+        self.parser.add_argument("--order", action="store",
+            dest="order", default="dataset", help=msg)
         self.parser.add_argument("--verbose", action="store_true",
             dest="verbose", default=False, help="Be verbose")
         self.parser.add_argument("--yarn", action="store_true",
@@ -57,6 +60,24 @@ def stats(iterable):
     custodial = ','.join([str(i) for i in set(cust)])
     phedex_group = ','.join([str(i) for i in set(group)])
     return nfiles, bsize, dataset_status, custodial, phedex_group
+
+def joinAttrs(attrs):
+    out = ''
+    for val in attrs:
+        if isinstance(val, float):
+            out += ' ' + "{0:.2f}".format(val)
+        else:
+            out += ' ' + str(val)
+    return out
+
+def toCSV2(data):
+    key, val = data
+    out = []
+    for item in val:
+        dataset, attrs = item
+        row = key + ' ' + dataset + ' ' + joinAttrs(attrs)
+        out.append(row)
+    return '\n'.join(out)
 
 def toCSV(data):
     key, val = data # our data is (dataset, site) (block attrbutes)
@@ -109,10 +130,17 @@ def main():
 #    res = ndf.filter("dataset_is_open='y'").groupBy().sum('block_bytes')
 #    print("open dataset size", res.collect())
 
-    res = ndf.map(lambda r: ((r.dataset_name, r.node_name), r)).groupByKey().map(lambda g: (g[0], stats(g[1])))
+    if  opts.order == 'dataset':
+        res = ndf.map(lambda r: ((r.dataset_name, r.node_name), r)).groupByKey().map(lambda g: (g[0], stats(g[1])))
+    elif opts.order == 'site' or opts.order == 'node':
+        res = ndf.map(lambda r: ((r.node_name, r.dataset_name), r)).groupByKey().map(lambda g: (g[0], stats(g[1])))
+    else:
+        msg = 'The order key="%s" is not supported' % opts.order
+        raise NotImplementedError(msg)
 
     if  opts.fout:
-        lines = res.map(toCSV)
+#        lines = res.map(toCSV)
+        lines = res.map(lambda g: (g[0][0],(g[0][1], g[1]))).groupByKey().map(toCSV2)
         lines.saveAsTextFile(opts.fout)
     else:
         count = 0
